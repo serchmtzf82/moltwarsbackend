@@ -466,6 +466,15 @@ wss.on('connection', (ws, req) => {
         if (t) {
           t.hp = Math.max(0, t.hp - 5);
           if (t.hp === 0) {
+            // drop all loot into a chest at death location
+            const key = `${t.x},${t.y}`;
+            const chest = chests.get(key) || { items: {} };
+            for (const [item, count] of Object.entries(t.inv || {})) {
+              if (count > 0) chest.items[item] = (chest.items[item] || 0) + count;
+            }
+            chests.set(key, chest);
+            t.inv = {};
+
             t.hp = 100;
             t.x = t.spawn.x;
             t.y = t.spawn.y;
