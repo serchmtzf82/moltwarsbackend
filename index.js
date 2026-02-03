@@ -143,6 +143,8 @@ let villages = []; // [{x,y}]
 const chests = new Map(); // key "x,y" -> {items:{[item]:count}}
 const animals = new Map(); // id -> {id, type, x, y, hp, vx, vy}
 const npcs = new Map(); // id -> {id, name, x, y, hp, inv, vx, vy}
+const chatLog = []; // {ts, message}
+const CHAT_MAX = 50;
 
 // Crafting recipes (loaded from defs.json)
 const RECIPES = () => ITEM_DEFS.recipes || {};
@@ -377,6 +379,11 @@ function spawnPlayer(name) {
   };
 }
 
+function addChat(message) {
+  chatLog.push({ ts: Date.now(), message });
+  if (chatLog.length > CHAT_MAX) chatLog.shift();
+}
+
 function broadcast(payload) {
   const msg = JSON.stringify(payload);
   for (const ws of sockets.values()) {
@@ -514,7 +521,9 @@ app.post('/join', (req, res) => {
   }
   const player = spawnPlayer(name);
   players.set(player.id, player);
-  broadcast({ type: 'chat', message: `${player.name} joined the world` });
+  const joinMsg = `${player.name} joined the world`;
+  addChat(joinMsg);
+  broadcast({ type: 'chat', message: joinMsg });
   res.json({ ok: true, playerId: player.id, apiKey: player.apiKey, spawn: player.spawn });
 });
 
@@ -535,6 +544,7 @@ function getWorldSnapshot() {
     animals: Array.from(animals.values()),
     npcs: Array.from(npcs.values()),
     villages,
+    chat: chatLog,
   };
 }
 
@@ -621,7 +631,9 @@ wss.on('connection', (ws, req) => {
             t.hp = 100;
             t.x = t.spawn.x;
             t.y = findSurfaceY(t.spawn.x);
-            broadcast({ type: 'chat', message: `${t.name} died and respawned` });
+            const deathMsg = `${t.name} died and respawned`;
+            addChat(deathMsg);
+            broadcast({ type: 'chat', message: deathMsg });
           }
         }
       }
@@ -715,14 +727,18 @@ wss.on('connection', (ws, req) => {
         p.active = null;
       }
       if (data.type === 'chat' && data.message) {
-        broadcast({ type: 'chat', message: `${p.name}: ${data.message}` });
+        const msg = `${p.name}: ${data.message}`;
+        addChat(msg);
+        broadcast({ type: 'chat', message: msg });
       }
     } catch (e) {}
   });
 
   ws.on('close', () => {
     sockets.delete(playerId);
-    broadcast({ type: 'chat', message: `${p.name} left the world` });
+    const leaveMsg = `${p.name} left the world`;
+    addChat(leaveMsg);
+    broadcast({ type: 'chat', message: leaveMsg });
   });
 });
 
