@@ -51,6 +51,7 @@ let biomeMap = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
 let villages = []; // [{x,y}]
 const chests = new Map(); // key "x,y" -> {items:{[item]:count}}
 const animals = new Map(); // id -> {id, type, x, y, hp, vx, vy}
+const npcs = new Map(); // id -> {id, name, x, y, hp, inv, vx, vy}
 
 // Crafting recipes (simple, non-minecraft)
 const RECIPES = {
@@ -124,6 +125,7 @@ function genWorld() {
   genBiomes();
   genVillages();
   genAnimals();
+  genNpcs();
 }
 
 function genVillages() {
@@ -145,6 +147,23 @@ function genAnimals() {
       x: Math.floor(Math.random() * WORLD_SIZE),
       y: Math.floor(WORLD_SIZE * 0.25 + Math.random() * WORLD_SIZE * 0.5),
       hp: 20,
+      vx: 0,
+      vy: 0,
+    });
+  }
+}
+
+function genNpcs() {
+  npcs.clear();
+  for (let i = 0; i < 12; i++) {
+    const id = randomUUID();
+    npcs.set(id, {
+      id,
+      name: `Moltbot-${i + 1}`,
+      x: Math.floor(Math.random() * WORLD_SIZE),
+      y: Math.floor(WORLD_SIZE * 0.25 + Math.random() * WORLD_SIZE * 0.5),
+      hp: 100,
+      inv: {},
       vx: 0,
       vy: 0,
     });
@@ -174,6 +193,9 @@ function loadWorld() {
       if (data?.animals) {
         for (const a of data.animals) animals.set(a.id, a);
       }
+      if (data?.npcs) {
+        for (const n of data.npcs) npcs.set(n.id, n);
+      }
     } else {
       genWorld();
     }
@@ -192,6 +214,7 @@ function saveWorld() {
       villages,
       chests: Object.fromEntries(chests),
       animals: Array.from(animals.values()),
+      npcs: Array.from(npcs.values()),
     };
     fs.mkdirSync('./data', { recursive: true });
     fs.writeFileSync(SAVE_PATH, JSON.stringify(snapshot));
@@ -256,6 +279,16 @@ function nearbyAnimals(p) {
   return out;
 }
 
+function nearbyNpcs(p) {
+  const out = [];
+  for (const n of npcs.values()) {
+    if (Math.abs(n.x - p.x) <= VIEW_RADIUS && Math.abs(n.y - p.y) <= VIEW_RADIUS) {
+      out.push(n);
+    }
+  }
+  return out;
+}
+
 function tickAnimals() {
   for (const a of animals.values()) {
     // random wander
@@ -265,6 +298,46 @@ function tickAnimals() {
     }
     a.x += a.vx * 0.2;
     a.y += a.vy * 0.2;
+  }
+}
+
+function tickNpcs() {
+  for (const n of npcs.values()) {
+    if (Math.random() < 0.25) {
+      n.vx = Math.floor(Math.random() * 3) - 1;
+      n.vy = Math.floor(Math.random() * 3) - 1;
+    }
+    n.x += n.vx * 0.3;
+    n.y += n.vy * 0.3;
+
+    // Mine nearby block sometimes
+    if (Math.random() < 0.05) {
+      const tx = Math.floor(n.x + (Math.random() * 3 - 1));
+      const ty = Math.floor(n.y + (Math.random() * 3 - 1));
+      const t = getTile(tx, ty);
+      if (t !== TILE.AIR) {
+        setTile(tx, ty, TILE.AIR);
+        const item = t === TILE.TREE ? ITEM.WOOD : t === TILE.ORE ? ITEM.ORE : t === TILE.STONE ? ITEM.STONE : ITEM.DIRT;
+        n.inv[item] = (n.inv[item] || 0) + 1;
+      }
+    }
+
+    // Build occasionally if has materials
+    if (Math.random() < 0.03) {
+      const buildTile = [TILE.DIRT, TILE.STONE, TILE.TREE][Math.floor(Math.random() * 3)];
+      const map = {
+        [TILE.DIRT]: ITEM.DIRT,
+        [TILE.STONE]: ITEM.STONE,
+        [TILE.TREE]: ITEM.WOOD,
+      };
+      const item = map[buildTile];
+      const tx = Math.floor(n.x + (Math.random() * 3 - 1));
+      const ty = Math.floor(n.y + (Math.random() * 3 - 1));
+      if (getTile(tx, ty) === TILE.AIR && item && (n.inv[item] || 0) > 0) {
+        setTile(tx, ty, buildTile);
+        n.inv[item] -= 1;
+      }
+    }
   }
 }
 
@@ -424,6 +497,7 @@ wss.on('connection', (ws, req) => {
 // Tick loop
 setInterval(() => {
   tickAnimals();
+  tickNpcs();
   for (const [playerId, ws] of sockets.entries()) {
     if (ws.readyState !== 1) continue;
     const p = players.get(playerId);
@@ -439,6 +513,7 @@ setInterval(() => {
       tiles: getViewport(p),
       chests: nearbyChests(p),
       animals: nearbyAnimals(p),
+      npcs: nearbyNpcs(p),
     };
     ws.send(JSON.stringify(payload));
   }
