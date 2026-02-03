@@ -68,6 +68,7 @@ const ITEM = {
 // Seeded RNG (deterministic world gen)
 let worldSeed = process.env.WORLD_SEED || 'moltwars';
 let rand = Math.random;
+let seedInt = 0;
 
 function xmur3(str) {
   let h = 1779033703 ^ str.length;
@@ -94,7 +95,43 @@ function mulberry32(a) {
 function setSeed(seed) {
   worldSeed = seed || 'moltwars';
   const h = xmur3(String(worldSeed))();
+  seedInt = h;
   rand = mulberry32(h);
+}
+
+function hash2(x, y) {
+  let h = x * 374761393 + y * 668265263 + seedInt * 374761;
+  h = (h ^ (h >> 13)) * 1274126177;
+  h ^= h >> 16;
+  return (h >>> 0) / 4294967295;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function fade(t) {
+  return t * t * (3 - 2 * t);
+}
+
+function noise2(x, y) {
+  const x0 = Math.floor(x);
+  const x1 = x0 + 1;
+  const y0 = Math.floor(y);
+  const y1 = y0 + 1;
+  const sx = fade(x - x0);
+  const sy = fade(y - y0);
+  const n00 = hash2(x0, y0);
+  const n10 = hash2(x1, y0);
+  const n01 = hash2(x0, y1);
+  const n11 = hash2(x1, y1);
+  const nx0 = lerp(n00, n10, sx);
+  const nx1 = lerp(n01, n11, sx);
+  return lerp(nx0, nx1, sy);
+}
+
+function noise1(x) {
+  return noise2(x, 0);
 }
 
 // In-memory state (authoritative)
@@ -137,38 +174,57 @@ function setTile(x, y, t) {
 }
 
 function genWorld() {
-  // heightmap-based terrain
-  const minSurface = Math.floor(WORLD_SIZE * 0.12);
-  const maxSurface = Math.floor(WORLD_SIZE * 0.32);
-  const surface = new Array(WORLD_SIZE);
-  let h = Math.floor(WORLD_SIZE * 0.55);
+  // noise-based heightmap (higher roughness)
+  const minSurface = Math.floor(WORLD_SIZE * 0.10);
+  const maxSurface = Math.floor(WORLD_SIZE * 0.35);
+  const base = Math.floor(WORLD_SIZE * 0.22);
 
   for (let x = 0; x < WORLD_SIZE; x++) {
-    h += Math.floor((rand() - 0.5) * 3); // gentle variation
-    h = Math.max(minSurface, Math.min(maxSurface, h));
-    surface[x] = h;
+    let h = base;
+    let amp = WORLD_SIZE * 0.08;
+    let freq = 0.01;
+    for (let o = 0; o < 4; o++) {
+      const n = noise1(x * freq) * 2 - 1;
+      h += n * amp;
+      amp *= 0.5;
+      freq *= 2;
+    }
+    h = Math.max(minSurface, Math.min(maxSurface, Math.floor(h)));
     surfaceMap[x] = h;
   }
 
   for (let y = 0; y < WORLD_SIZE; y++) {
     for (let x = 0; x < WORLD_SIZE; x++) {
-      const s = surface[x];
+      const s = surfaceMap[x];
       if (y < s - 1) {
         setTile(x, y, TILE.SKY);
       } else if (y === s - 1) {
         setTile(x, y, TILE.GRASS);
-      } else if (y < s + 10) {
-        setTile(x, y, TILE.DIRT);
       } else {
-        setTile(x, y, rand() < 0.06 ? TILE.ORE : TILE.STONE);
+        const dirtDepth = 3 + Math.floor(hash2(x, 9999) * 6); // 3-8
+        if (y < s + dirtDepth) {
+          setTile(x, y, TILE.DIRT);
+        } else {
+          setTile(x, y, hash2(x, y) < 0.06 ? TILE.ORE : TILE.STONE);
+        }
       }
+    }
+  }
+
+  // Caves (high amount)
+  for (let y = 0; y < WORLD_SIZE; y++) {
+    for (let x = 0; x < WORLD_SIZE; x++) {
+      const s = surfaceMap[x];
+      if (y <= s + 2) continue; // keep surface intact
+      const n = noise2(x * 0.08, y * 0.08);
+      if (n > 0.62) setTile(x, y, TILE.AIR);
     }
   }
 
   // Trees on surface (spawn on grass)
   for (let x = 0; x < WORLD_SIZE; x++) {
     if (rand() < 0.05) {
-      const y = surface[x] - 1;
+      const y = surfaceMap[x] - 1;
       if (getTile(x, y) === TILE.GRASS) {
         setTile(x, y - 1, TILE.TREE);
         setTile(x, y - 2, TILE.TREE);
