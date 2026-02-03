@@ -35,19 +35,42 @@ const ITEM = {
   SWORD: 'sword',
 };
 
-// Biomes (scaffold for future)
-const BIOME = {
-  FOREST: 0,
-  DESERT: 1,
-  SNOW: 2,
-  JUNGLE: 3,
-};
+// Seeded RNG (deterministic world gen)
+let worldSeed = process.env.WORLD_SEED || 'moltwars';
+let rand = Math.random;
+
+function xmur3(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return function () {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return (h ^= h >>> 16) >>> 0;
+  };
+}
+
+function mulberry32(a) {
+  return function () {
+    let t = (a += 0x6D2B79F5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function setSeed(seed) {
+  worldSeed = seed || 'moltwars';
+  const h = xmur3(String(worldSeed))();
+  rand = mulberry32(h);
+}
 
 // In-memory state (authoritative)
 const players = new Map(); // playerId -> {id, name, x, y, hp, apiKey, inv, spawn}
 const sockets = new Map(); // playerId -> ws
 let world = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
-let biomeMap = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
 let villages = []; // [{x,y}]
 const chests = new Map(); // key "x,y" -> {items:{[item]:count}}
 const animals = new Map(); // id -> {id, type, x, y, hp, vx, vy}
@@ -80,24 +103,6 @@ function setTile(x, y, t) {
   world[idx(x, y)] = t;
 }
 
-function setBiome(x, y, b) {
-  if (x < 0 || y < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE) return;
-  biomeMap[idx(x, y)] = b;
-}
-
-function genBiomes() {
-  // simple horizontal bands for now
-  for (let y = 0; y < WORLD_SIZE; y++) {
-    for (let x = 0; x < WORLD_SIZE; x++) {
-      if (y < WORLD_SIZE * 0.2) setBiome(x, y, BIOME.FOREST);
-      else if (y < WORLD_SIZE * 0.4) setBiome(x, y, BIOME.DESERT);
-      else if (y < WORLD_SIZE * 0.6) setBiome(x, y, BIOME.FOREST);
-      else if (y < WORLD_SIZE * 0.8) setBiome(x, y, BIOME.SNOW);
-      else setBiome(x, y, BIOME.JUNGLE);
-    }
-  }
-}
-
 function genWorld() {
   const skyH = Math.floor(WORLD_SIZE * 0.2);
   const surfaceH = Math.floor(WORLD_SIZE * 0.6);
@@ -110,16 +115,16 @@ function genWorld() {
       } else if (y < undergroundStart) {
         const depth = y - skyH;
         if (depth < surfaceH * 0.35) setTile(x, y, TILE.DIRT);
-        else setTile(x, y, Math.random() < 0.06 ? TILE.ORE : TILE.STONE);
+        else setTile(x, y, rand() < 0.06 ? TILE.ORE : TILE.STONE);
       } else {
-        setTile(x, y, Math.random() < 0.12 ? TILE.ORE : TILE.STONE);
+        setTile(x, y, rand() < 0.12 ? TILE.ORE : TILE.STONE);
       }
     }
   }
 
   // Trees on surface
   for (let x = 0; x < WORLD_SIZE; x++) {
-    if (Math.random() < 0.06) {
+    if (rand() < 0.06) {
       for (let y = skyH; y < skyH + 10; y++) {
         if (getTile(x, y) === TILE.DIRT) {
           setTile(x, y - 1, TILE.TREE);
@@ -130,7 +135,6 @@ function genWorld() {
     }
   }
 
-  genBiomes();
   genVillages();
   genAnimals();
   genNpcs();
@@ -140,8 +144,8 @@ function genVillages() {
   villages = [];
   for (let i = 0; i < 6; i++) {
     villages.push({
-      x: Math.floor(Math.random() * WORLD_SIZE),
-      y: Math.floor(WORLD_SIZE * 0.25 + Math.random() * WORLD_SIZE * 0.5),
+      x: Math.floor(rand() * WORLD_SIZE),
+      y: Math.floor(WORLD_SIZE * 0.25 + rand() * WORLD_SIZE * 0.5),
     });
   }
 }
@@ -152,8 +156,8 @@ function genAnimals() {
     animals.set(randomUUID(), {
       id: randomUUID(),
       type: 'critter',
-      x: Math.floor(Math.random() * WORLD_SIZE),
-      y: Math.floor(WORLD_SIZE * 0.25 + Math.random() * WORLD_SIZE * 0.5),
+      x: Math.floor(rand() * WORLD_SIZE),
+      y: Math.floor(WORLD_SIZE * 0.25 + rand() * WORLD_SIZE * 0.5),
       hp: 20,
       vx: 0,
       vy: 0,
@@ -180,12 +184,12 @@ function genNpcs() {
   for (let i = 0; i < 12; i++) {
     const id = randomUUID();
     const base = names[i % names.length];
-    const suffix = Math.random() < 0.4 ? `-${Math.floor(Math.random() * 90 + 10)}` : '';
+    const suffix = rand() < 0.4 ? `-${Math.floor(rand() * 90 + 10)}` : '';
     npcs.set(id, {
       id,
       name: `${base}${suffix}`,
-      x: Math.floor(Math.random() * WORLD_SIZE),
-      y: Math.floor(WORLD_SIZE * 0.25 + Math.random() * WORLD_SIZE * 0.5),
+      x: Math.floor(rand() * WORLD_SIZE),
+      y: Math.floor(WORLD_SIZE * 0.25 + rand() * WORLD_SIZE * 0.5),
       hp: 100,
       inv: {},
       vx: 0,
@@ -197,9 +201,11 @@ function genNpcs() {
 
 function loadWorld() {
   try {
+    const envSeed = process.env.WORLD_SEED || 'moltwars';
     if (fs.existsSync(SAVE_PATH)) {
       const raw = fs.readFileSync(SAVE_PATH, 'utf8');
       const data = JSON.parse(raw);
+      if (data?.seed) setSeed(data.seed); else setSeed(envSeed);
       if (data?.players) {
         for (const p of data.players) players.set(p.id, p);
       }
@@ -207,9 +213,6 @@ function loadWorld() {
         world = Uint8Array.from(data.world);
       } else {
         genWorld();
-      }
-      if (data?.biomeMap && data.biomeMap.length === WORLD_SIZE * WORLD_SIZE) {
-        biomeMap = Uint8Array.from(data.biomeMap);
       }
       if (data?.villages) villages = data.villages;
       if (data?.chests) {
@@ -222,6 +225,7 @@ function loadWorld() {
         for (const n of data.npcs) npcs.set(n.id, n);
       }
     } else {
+      setSeed(envSeed);
       genWorld();
     }
   } catch (e) {
@@ -235,7 +239,7 @@ function saveWorld() {
     const snapshot = {
       players: Array.from(players.values()),
       world: Array.from(world),
-      biomeMap: Array.from(biomeMap),
+      seed: worldSeed,
       villages,
       chests: Object.fromEntries(chests),
       animals: Array.from(animals.values()),
@@ -251,7 +255,7 @@ function saveWorld() {
 function spawnPlayer(name) {
   const skyH = Math.floor(WORLD_SIZE * 0.2);
   const surfaceY = skyH + 2;
-  const spawnX = Math.floor(Math.random() * WORLD_SIZE);
+  const spawnX = Math.floor(rand() * WORLD_SIZE);
   return {
     id: randomUUID(),
     name,
@@ -261,7 +265,7 @@ function spawnPlayer(name) {
     apiKey: randomUUID().replace(/-/g, ''),
     inv: {},
     spawn: { x: spawnX, y: surfaceY },
-    skin: SKINS[Math.floor(Math.random() * SKINS.length)],
+    skin: SKINS[Math.floor(rand() * SKINS.length)],
   };
 }
 
@@ -318,9 +322,9 @@ function nearbyNpcs(p) {
 function tickAnimals() {
   for (const a of animals.values()) {
     // random wander
-    if (Math.random() < 0.3) {
-      a.vx = Math.floor(Math.random() * 3) - 1;
-      a.vy = Math.floor(Math.random() * 3) - 1;
+    if (rand() < 0.3) {
+      a.vx = Math.floor(rand() * 3) - 1;
+      a.vy = Math.floor(rand() * 3) - 1;
     }
     a.x += a.vx * 0.2;
     a.y += a.vy * 0.2;
@@ -329,17 +333,17 @@ function tickAnimals() {
 
 function tickNpcs() {
   for (const n of npcs.values()) {
-    if (Math.random() < 0.25) {
-      n.vx = Math.floor(Math.random() * 3) - 1;
-      n.vy = Math.floor(Math.random() * 3) - 1;
+    if (rand() < 0.25) {
+      n.vx = Math.floor(rand() * 3) - 1;
+      n.vy = Math.floor(rand() * 3) - 1;
     }
     n.x += n.vx * 0.3;
     n.y += n.vy * 0.3;
 
     // Mine nearby block sometimes
-    if (Math.random() < 0.05) {
-      const tx = Math.floor(n.x + (Math.random() * 3 - 1));
-      const ty = Math.floor(n.y + (Math.random() * 3 - 1));
+    if (rand() < 0.05) {
+      const tx = Math.floor(n.x + (rand() * 3 - 1));
+      const ty = Math.floor(n.y + (rand() * 3 - 1));
       const t = getTile(tx, ty);
       if (t !== TILE.AIR) {
         setTile(tx, ty, TILE.AIR);
@@ -349,16 +353,16 @@ function tickNpcs() {
     }
 
     // Build occasionally if has materials
-    if (Math.random() < 0.03) {
-      const buildTile = [TILE.DIRT, TILE.STONE, TILE.TREE][Math.floor(Math.random() * 3)];
+    if (rand() < 0.03) {
+      const buildTile = [TILE.DIRT, TILE.STONE, TILE.TREE][Math.floor(rand() * 3)];
       const map = {
         [TILE.DIRT]: ITEM.DIRT,
         [TILE.STONE]: ITEM.STONE,
         [TILE.TREE]: ITEM.WOOD,
       };
       const item = map[buildTile];
-      const tx = Math.floor(n.x + (Math.random() * 3 - 1));
-      const ty = Math.floor(n.y + (Math.random() * 3 - 1));
+      const tx = Math.floor(n.x + (rand() * 3 - 1));
+      const ty = Math.floor(n.y + (rand() * 3 - 1));
       if (getTile(tx, ty) === TILE.AIR && item && (n.inv[item] || 0) > 0) {
         setTile(tx, ty, buildTile);
         n.inv[item] -= 1;
