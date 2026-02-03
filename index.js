@@ -6,8 +6,8 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 
 const PORT = process.env.PORT || 8080;
-const TICK_RATE = 10; // ticks per second (fast)
-const WORLD_SIZE = 256;
+const TICK_RATE = 10; // 100ms ticks
+const WORLD_SIZE = 512; // tiles (square)
 const SAVE_PATH = './data/world.json';
 const SAVE_INTERVAL_MS = 5000;
 
@@ -15,9 +15,69 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// Tile types
+const TILE = {
+  AIR: 0,
+  DIRT: 1,
+  STONE: 2,
+  ORE: 3,
+  TREE: 4,
+};
+
 // In-memory state (authoritative)
-const players = new Map(); // playerId -> {id, name, x, y, hp, apiKey}
+const players = new Map(); // playerId -> {id, name, x, y, hp, apiKey, inv, spawn}
 const sockets = new Map(); // playerId -> ws
+let world = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
+
+function idx(x, y) {
+  return y * WORLD_SIZE + x;
+}
+
+function getTile(x, y) {
+  if (x < 0 || y < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE) return TILE.AIR;
+  return world[idx(x, y)];
+}
+
+function setTile(x, y, t) {
+  if (x < 0 || y < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE) return;
+  world[idx(x, y)] = t;
+}
+
+function genWorld() {
+  const skyH = Math.floor(WORLD_SIZE * 0.2);
+  const surfaceH = Math.floor(WORLD_SIZE * 0.6);
+  const undergroundStart = skyH + surfaceH;
+
+  for (let y = 0; y < WORLD_SIZE; y++) {
+    for (let x = 0; x < WORLD_SIZE; x++) {
+      if (y < skyH) {
+        setTile(x, y, TILE.AIR);
+      } else if (y < undergroundStart) {
+        // surface terrain: mix dirt + stone + rare ore
+        const depth = y - skyH;
+        if (depth < surfaceH * 0.35) setTile(x, y, TILE.DIRT);
+        else setTile(x, y, Math.random() < 0.06 ? TILE.ORE : TILE.STONE);
+      } else {
+        // underground: mostly stone + ore
+        setTile(x, y, Math.random() < 0.12 ? TILE.ORE : TILE.STONE);
+      }
+    }
+  }
+
+  // Trees on surface
+  for (let x = 0; x < WORLD_SIZE; x++) {
+    if (Math.random() < 0.06) {
+      // find first dirt from top
+      for (let y = skyH; y < skyH + 10; y++) {
+        if (getTile(x, y) === TILE.DIRT) {
+          setTile(x, y - 1, TILE.TREE);
+          setTile(x, y - 2, TILE.TREE);
+          break;
+        }
+      }
+    }
+  }
+}
 
 function loadWorld() {
   try {
@@ -27,15 +87,26 @@ function loadWorld() {
       if (data?.players) {
         for (const p of data.players) players.set(p.id, p);
       }
+      if (data?.world && data.world.length === WORLD_SIZE * WORLD_SIZE) {
+        world = Uint8Array.from(data.world);
+      } else {
+        genWorld();
+      }
+    } else {
+      genWorld();
     }
   } catch (e) {
     console.error('Failed to load world:', e);
+    genWorld();
   }
 }
 
 function saveWorld() {
   try {
-    const snapshot = { players: Array.from(players.values()) };
+    const snapshot = {
+      players: Array.from(players.values()),
+      world: Array.from(world),
+    };
     fs.mkdirSync('./data', { recursive: true });
     fs.writeFileSync(SAVE_PATH, JSON.stringify(snapshot));
   } catch (e) {
@@ -44,14 +115,25 @@ function saveWorld() {
 }
 
 function spawnPlayer(name) {
+  const skyH = Math.floor(WORLD_SIZE * 0.2);
+  const surfaceY = skyH + 2;
   return {
     id: randomUUID(),
     name,
     x: Math.floor(Math.random() * WORLD_SIZE),
-    y: Math.floor(Math.random() * WORLD_SIZE),
+    y: surfaceY,
     hp: 100,
     apiKey: randomUUID().replace(/-/g, ''),
+    inv: {},
+    spawn: { x: Math.floor(Math.random() * WORLD_SIZE), y: surfaceY },
   };
+}
+
+function broadcast(payload) {
+  const msg = JSON.stringify(payload);
+  for (const ws of sockets.values()) {
+    if (ws.readyState === 1) ws.send(msg);
+  }
 }
 
 // REST: join (unique usernames)
@@ -65,7 +147,8 @@ app.post('/join', (req, res) => {
   }
   const player = spawnPlayer(name);
   players.set(player.id, player);
-  res.json({ ok: true, playerId: player.id, apiKey: player.apiKey, spawn: { x: player.x, y: player.y } });
+  broadcast({ type: 'chat', message: `${player.name} joined the world` });
+  res.json({ ok: true, playerId: player.id, apiKey: player.apiKey, spawn: player.spawn });
 });
 
 // REST: get state (simple)
@@ -104,13 +187,25 @@ wss.on('connection', (ws, req) => {
       }
       if (data.type === 'attack' && data.targetId) {
         const t = players.get(data.targetId);
-        if (t) t.hp = Math.max(0, t.hp - 5);
+        if (t) {
+          t.hp = Math.max(0, t.hp - 5);
+          if (t.hp === 0) {
+            t.hp = 100;
+            t.x = t.spawn.x;
+            t.y = t.spawn.y;
+            broadcast({ type: 'chat', message: `${t.name} died and respawned` });
+          }
+        }
+      }
+      if (data.type === 'chat' && data.message) {
+        broadcast({ type: 'chat', message: `${p.name}: ${data.message}` });
       }
     } catch (e) {}
   });
 
   ws.on('close', () => {
     sockets.delete(playerId);
+    broadcast({ type: 'chat', message: `${p.name} left the world` });
   });
 });
 
