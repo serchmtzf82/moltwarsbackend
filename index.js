@@ -96,7 +96,7 @@ function setSeed(seed) {
 }
 
 // In-memory state (authoritative)
-const players = new Map(); // playerId -> {id, name, x, y, hp, apiKey, inv, spawn}
+const players = new Map(); // playerId -> {id, name, x, y, hp, apiKey, inv, spawn, active}
 const sockets = new Map(); // playerId -> ws
 let world = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
 let villages = []; // [{x,y}]
@@ -290,6 +290,7 @@ function spawnPlayer(name) {
     hp: 100,
     apiKey: randomUUID().replace(/-/g, ''),
     inv: {},
+    active: null,
     spawn: { x: spawnX, y: surfaceY },
     skin: SKINS[Math.floor(rand() * SKINS.length)],
   };
@@ -464,7 +465,13 @@ wss.on('connection', (ws, req) => {
       if (data.type === 'attack' && data.targetId) {
         const t = players.get(data.targetId);
         if (t) {
-          t.hp = Math.max(0, t.hp - 5);
+          const active = p.active;
+          const baseDmg = 5;
+          let dmg = baseDmg;
+          if (active && ITEM_DEFS.items?.[active]?.tags?.includes('weapon')) {
+            dmg = ITEM_DEFS.items[active].dmg || baseDmg;
+          }
+          t.hp = Math.max(0, t.hp - dmg);
           if (t.hp === 0) {
             // drop all loot into a chest at death location
             const key = `${t.x},${t.y}`;
@@ -562,6 +569,15 @@ wss.on('connection', (ws, req) => {
           chests.set(key, chest);
         }
       }
+      if (data.type === 'equip' && data.item) {
+        const item = String(data.item);
+        if ((p.inv[item] || 0) > 0) {
+          p.active = item;
+        }
+      }
+      if (data.type === 'unequip') {
+        p.active = null;
+      }
       if (data.type === 'chat' && data.message) {
         broadcast({ type: 'chat', message: `${p.name}: ${data.message}` });
       }
@@ -588,7 +604,7 @@ setInterval(() => {
 
     const payload = {
       type: 'tick',
-      player: { id: p.id, x: p.x, y: p.y, hp: p.hp, inv: p.inv, skin: p.skin },
+      player: { id: p.id, x: p.x, y: p.y, hp: p.hp, inv: p.inv, skin: p.skin, active: p.active },
       players: nearbyPlayers,
       tiles: getViewport(p),
       chests: nearbyChests(p),
