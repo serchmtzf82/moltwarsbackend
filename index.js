@@ -59,7 +59,6 @@ const ITEM = {
   STONE: 'stone',
   ORE: 'ore',
   WOOD: 'wood',
-  RATION: 'ration',
   SWORD: 'sword',
   MEAT: 'meat',
 };
@@ -487,9 +486,9 @@ wss.on('connection', (ws, req) => {
           }
         }
       }
-      if (data.type === 'eat' && data.item === ITEM.RATION) {
-        if ((p.inv[ITEM.RATION] || 0) > 0) {
-          p.inv[ITEM.RATION] -= 1;
+      if (data.type === 'eat' && data.item === ITEM.MEAT) {
+        if ((p.inv[ITEM.MEAT] || 0) > 0) {
+          p.inv[ITEM.MEAT] -= 1;
           p.hp = Math.min(100, p.hp + 20);
         }
       }
