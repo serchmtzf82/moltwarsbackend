@@ -25,10 +25,27 @@ const TILE = {
   TREE: 4,
 };
 
+// Biomes (scaffold for future)
+const BIOME = {
+  FOREST: 0,
+  DESERT: 1,
+  SNOW: 2,
+  JUNGLE: 3,
+};
+
 // In-memory state (authoritative)
 const players = new Map(); // playerId -> {id, name, x, y, hp, apiKey, inv, spawn}
 const sockets = new Map(); // playerId -> ws
 let world = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
+let biomeMap = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
+let villages = []; // [{x,y}]
+const chests = new Map(); // key "x,y" -> {items:{[tile]:count}}
+
+// Crafting recipes (scaffold)
+const RECIPES = {
+  // example: 2 wood -> 1 plank
+  plank: { in: { [TILE.TREE]: 2 }, out: { plank: 1 } },
+};
 
 function idx(x, y) {
   return y * WORLD_SIZE + x;
@@ -44,6 +61,24 @@ function setTile(x, y, t) {
   world[idx(x, y)] = t;
 }
 
+function setBiome(x, y, b) {
+  if (x < 0 || y < 0 || x >= WORLD_SIZE || y >= WORLD_SIZE) return;
+  biomeMap[idx(x, y)] = b;
+}
+
+function genBiomes() {
+  // simple horizontal bands for now
+  for (let y = 0; y < WORLD_SIZE; y++) {
+    for (let x = 0; x < WORLD_SIZE; x++) {
+      if (y < WORLD_SIZE * 0.2) setBiome(x, y, BIOME.FOREST);
+      else if (y < WORLD_SIZE * 0.4) setBiome(x, y, BIOME.DESERT);
+      else if (y < WORLD_SIZE * 0.6) setBiome(x, y, BIOME.FOREST);
+      else if (y < WORLD_SIZE * 0.8) setBiome(x, y, BIOME.SNOW);
+      else setBiome(x, y, BIOME.JUNGLE);
+    }
+  }
+}
+
 function genWorld() {
   const skyH = Math.floor(WORLD_SIZE * 0.2);
   const surfaceH = Math.floor(WORLD_SIZE * 0.6);
@@ -54,12 +89,10 @@ function genWorld() {
       if (y < skyH) {
         setTile(x, y, TILE.AIR);
       } else if (y < undergroundStart) {
-        // surface terrain: mix dirt + stone + rare ore
         const depth = y - skyH;
         if (depth < surfaceH * 0.35) setTile(x, y, TILE.DIRT);
         else setTile(x, y, Math.random() < 0.06 ? TILE.ORE : TILE.STONE);
       } else {
-        // underground: mostly stone + ore
         setTile(x, y, Math.random() < 0.12 ? TILE.ORE : TILE.STONE);
       }
     }
@@ -68,7 +101,6 @@ function genWorld() {
   // Trees on surface
   for (let x = 0; x < WORLD_SIZE; x++) {
     if (Math.random() < 0.06) {
-      // find first dirt from top
       for (let y = skyH; y < skyH + 10; y++) {
         if (getTile(x, y) === TILE.DIRT) {
           setTile(x, y - 1, TILE.TREE);
@@ -77,6 +109,19 @@ function genWorld() {
         }
       }
     }
+  }
+
+  genBiomes();
+  genVillages();
+}
+
+function genVillages() {
+  villages = [];
+  for (let i = 0; i < 6; i++) {
+    villages.push({
+      x: Math.floor(Math.random() * WORLD_SIZE),
+      y: Math.floor(WORLD_SIZE * 0.25 + Math.random() * WORLD_SIZE * 0.5),
+    });
   }
 }
 
@@ -93,6 +138,13 @@ function loadWorld() {
       } else {
         genWorld();
       }
+      if (data?.biomeMap && data.biomeMap.length === WORLD_SIZE * WORLD_SIZE) {
+        biomeMap = Uint8Array.from(data.biomeMap);
+      }
+      if (data?.villages) villages = data.villages;
+      if (data?.chests) {
+        for (const [k, v] of Object.entries(data.chests)) chests.set(k, v);
+      }
     } else {
       genWorld();
     }
@@ -107,6 +159,9 @@ function saveWorld() {
     const snapshot = {
       players: Array.from(players.values()),
       world: Array.from(world),
+      biomeMap: Array.from(biomeMap),
+      villages,
+      chests: Object.fromEntries(chests),
     };
     fs.mkdirSync('./data', { recursive: true });
     fs.writeFileSync(SAVE_PATH, JSON.stringify(snapshot));
@@ -148,6 +203,17 @@ function getViewport(p) {
     tiles.push(row);
   }
   return tiles;
+}
+
+function nearbyChests(p) {
+  const out = [];
+  for (const [k, v] of chests.entries()) {
+    const [x, y] = k.split(',').map(Number);
+    if (Math.abs(x - p.x) <= VIEW_RADIUS && Math.abs(y - p.y) <= VIEW_RADIUS) {
+      out.push({ x, y, items: v.items || {} });
+    }
+  }
+  return out;
 }
 
 // REST: join (unique usernames)
@@ -226,6 +292,44 @@ wss.on('connection', (ws, req) => {
           p.inv[tile] -= 1;
         }
       }
+      if (data.type === 'craft') {
+        const { recipe } = data;
+        const r = RECIPES[recipe];
+        if (!r) return;
+        let ok = true;
+        for (const [k, v] of Object.entries(r.in)) {
+          if ((p.inv[k] || 0) < v) ok = false;
+        }
+        if (ok) {
+          for (const [k, v] of Object.entries(r.in)) p.inv[k] -= v;
+          for (const [k, v] of Object.entries(r.out)) p.inv[k] = (p.inv[k] || 0) + v;
+        }
+      }
+      if (data.type === 'openChest') {
+        const { x, y } = data;
+        const key = `${x},${y}`;
+        if (!chests.has(key)) chests.set(key, { items: {} });
+      }
+      if (data.type === 'putChest') {
+        const { x, y, item, count } = data;
+        const key = `${x},${y}`;
+        const chest = chests.get(key) || { items: {} };
+        if ((p.inv[item] || 0) >= count) {
+          p.inv[item] -= count;
+          chest.items[item] = (chest.items[item] || 0) + count;
+          chests.set(key, chest);
+        }
+      }
+      if (data.type === 'takeChest') {
+        const { x, y, item, count } = data;
+        const key = `${x},${y}`;
+        const chest = chests.get(key);
+        if (chest && (chest.items[item] || 0) >= count) {
+          chest.items[item] -= count;
+          p.inv[item] = (p.inv[item] || 0) + count;
+          chests.set(key, chest);
+        }
+      }
       if (data.type === 'chat' && data.message) {
         broadcast({ type: 'chat', message: `${p.name}: ${data.message}` });
       }
@@ -253,6 +357,7 @@ setInterval(() => {
       player: { id: p.id, x: p.x, y: p.y, hp: p.hp, inv: p.inv },
       players: nearbyPlayers,
       tiles: getViewport(p),
+      chests: nearbyChests(p),
     };
     ws.send(JSON.stringify(payload));
   }
