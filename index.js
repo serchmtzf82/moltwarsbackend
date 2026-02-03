@@ -25,6 +25,15 @@ const TILE = {
   TREE: 4,
 };
 
+// Item types (non-minecraft clone, minimal)
+const ITEM = {
+  DIRT: 'dirt',
+  STONE: 'stone',
+  ORE: 'ore',
+  WOOD: 'wood',
+  RATION: 'ration',
+};
+
 // Biomes (scaffold for future)
 const BIOME = {
   FOREST: 0,
@@ -39,12 +48,12 @@ const sockets = new Map(); // playerId -> ws
 let world = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
 let biomeMap = new Uint8Array(WORLD_SIZE * WORLD_SIZE);
 let villages = []; // [{x,y}]
-const chests = new Map(); // key "x,y" -> {items:{[tile]:count}}
+const chests = new Map(); // key "x,y" -> {items:{[item]:count}}
+const animals = new Map(); // id -> {id, type, x, y, hp, vx, vy}
 
-// Crafting recipes (scaffold)
+// Crafting recipes (simple, non-minecraft)
 const RECIPES = {
-  // example: 2 wood -> 1 plank
-  plank: { in: { [TILE.TREE]: 2 }, out: { plank: 1 } },
+  ration: { in: { [ITEM.WOOD]: 1, [ITEM.ORE]: 1 }, out: { [ITEM.RATION]: 1 } },
 };
 
 function idx(x, y) {
@@ -113,6 +122,7 @@ function genWorld() {
 
   genBiomes();
   genVillages();
+  genAnimals();
 }
 
 function genVillages() {
@@ -121,6 +131,21 @@ function genVillages() {
     villages.push({
       x: Math.floor(Math.random() * WORLD_SIZE),
       y: Math.floor(WORLD_SIZE * 0.25 + Math.random() * WORLD_SIZE * 0.5),
+    });
+  }
+}
+
+function genAnimals() {
+  animals.clear();
+  for (let i = 0; i < 40; i++) {
+    animals.set(randomUUID(), {
+      id: randomUUID(),
+      type: 'critter',
+      x: Math.floor(Math.random() * WORLD_SIZE),
+      y: Math.floor(WORLD_SIZE * 0.25 + Math.random() * WORLD_SIZE * 0.5),
+      hp: 20,
+      vx: 0,
+      vy: 0,
     });
   }
 }
@@ -145,6 +170,9 @@ function loadWorld() {
       if (data?.chests) {
         for (const [k, v] of Object.entries(data.chests)) chests.set(k, v);
       }
+      if (data?.animals) {
+        for (const a of data.animals) animals.set(a.id, a);
+      }
     } else {
       genWorld();
     }
@@ -162,6 +190,7 @@ function saveWorld() {
       biomeMap: Array.from(biomeMap),
       villages,
       chests: Object.fromEntries(chests),
+      animals: Array.from(animals.values()),
     };
     fs.mkdirSync('./data', { recursive: true });
     fs.writeFileSync(SAVE_PATH, JSON.stringify(snapshot));
@@ -214,6 +243,28 @@ function nearbyChests(p) {
     }
   }
   return out;
+}
+
+function nearbyAnimals(p) {
+  const out = [];
+  for (const a of animals.values()) {
+    if (Math.abs(a.x - p.x) <= VIEW_RADIUS && Math.abs(a.y - p.y) <= VIEW_RADIUS) {
+      out.push(a);
+    }
+  }
+  return out;
+}
+
+function tickAnimals() {
+  for (const a of animals.values()) {
+    // random wander
+    if (Math.random() < 0.3) {
+      a.vx = Math.floor(Math.random() * 3) - 1;
+      a.vy = Math.floor(Math.random() * 3) - 1;
+    }
+    a.x += a.vx * 0.2;
+    a.y += a.vy * 0.2;
+  }
 }
 
 // REST: join (unique usernames)
@@ -277,19 +328,46 @@ wss.on('connection', (ws, req) => {
           }
         }
       }
+      if (data.type === 'attackAnimal' && data.animalId) {
+        const a = animals.get(data.animalId);
+        if (a) {
+          a.hp -= 5;
+          // run away
+          a.vx = Math.sign(a.x - p.x) * 2;
+          a.vy = Math.sign(a.y - p.y) * 2;
+          if (a.hp <= 0) {
+            animals.delete(a.id);
+            p.inv[ITEM.RATION] = (p.inv[ITEM.RATION] || 0) + 1;
+          }
+        }
+      }
+      if (data.type === 'eat' && data.item === ITEM.RATION) {
+        if ((p.inv[ITEM.RATION] || 0) > 0) {
+          p.inv[ITEM.RATION] -= 1;
+          p.hp = Math.min(100, p.hp + 20);
+        }
+      }
       if (data.type === 'mine') {
         const { x, y } = data;
         const t = getTile(x, y);
         if (t !== TILE.AIR) {
           setTile(x, y, TILE.AIR);
-          p.inv[t] = (p.inv[t] || 0) + 1;
+          const item = t === TILE.TREE ? ITEM.WOOD : t === TILE.ORE ? ITEM.ORE : t === TILE.STONE ? ITEM.STONE : ITEM.DIRT;
+          p.inv[item] = (p.inv[item] || 0) + 1;
         }
       }
       if (data.type === 'build') {
         const { x, y, tile } = data;
-        if (getTile(x, y) === TILE.AIR && (p.inv[tile] || 0) > 0) {
+        const map = {
+          [TILE.DIRT]: ITEM.DIRT,
+          [TILE.STONE]: ITEM.STONE,
+          [TILE.ORE]: ITEM.ORE,
+          [TILE.TREE]: ITEM.WOOD,
+        };
+        const item = map[tile];
+        if (getTile(x, y) === TILE.AIR && item && (p.inv[item] || 0) > 0) {
           setTile(x, y, tile);
-          p.inv[tile] -= 1;
+          p.inv[item] -= 1;
         }
       }
       if (data.type === 'craft') {
@@ -344,6 +422,7 @@ wss.on('connection', (ws, req) => {
 
 // Tick loop
 setInterval(() => {
+  tickAnimals();
   for (const [playerId, ws] of sockets.entries()) {
     if (ws.readyState !== 1) continue;
     const p = players.get(playerId);
@@ -358,6 +437,7 @@ setInterval(() => {
       players: nearbyPlayers,
       tiles: getViewport(p),
       chests: nearbyChests(p),
+      animals: nearbyAnimals(p),
     };
     ws.send(JSON.stringify(payload));
   }
