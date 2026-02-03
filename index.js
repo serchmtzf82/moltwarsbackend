@@ -8,6 +8,7 @@ import fs from 'fs';
 const PORT = process.env.PORT || 8080;
 const TICK_RATE = 10; // 100ms ticks
 const WORLD_SIZE = 512; // tiles (square)
+const VIEW_RADIUS = 16; // tiles around player
 const SAVE_PATH = './data/world.json';
 const SAVE_INTERVAL_MS = 5000;
 
@@ -117,15 +118,16 @@ function saveWorld() {
 function spawnPlayer(name) {
   const skyH = Math.floor(WORLD_SIZE * 0.2);
   const surfaceY = skyH + 2;
+  const spawnX = Math.floor(Math.random() * WORLD_SIZE);
   return {
     id: randomUUID(),
     name,
-    x: Math.floor(Math.random() * WORLD_SIZE),
+    x: spawnX,
     y: surfaceY,
     hp: 100,
     apiKey: randomUUID().replace(/-/g, ''),
     inv: {},
-    spawn: { x: Math.floor(Math.random() * WORLD_SIZE), y: surfaceY },
+    spawn: { x: spawnX, y: surfaceY },
   };
 }
 
@@ -134,6 +136,18 @@ function broadcast(payload) {
   for (const ws of sockets.values()) {
     if (ws.readyState === 1) ws.send(msg);
   }
+}
+
+function getViewport(p) {
+  const tiles = [];
+  for (let dy = -VIEW_RADIUS; dy <= VIEW_RADIUS; dy++) {
+    const row = [];
+    for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
+      row.push(getTile(p.x + dx, p.y + dy));
+    }
+    tiles.push(row);
+  }
+  return tiles;
 }
 
 // REST: join (unique usernames)
@@ -197,6 +211,21 @@ wss.on('connection', (ws, req) => {
           }
         }
       }
+      if (data.type === 'mine') {
+        const { x, y } = data;
+        const t = getTile(x, y);
+        if (t !== TILE.AIR) {
+          setTile(x, y, TILE.AIR);
+          p.inv[t] = (p.inv[t] || 0) + 1;
+        }
+      }
+      if (data.type === 'build') {
+        const { x, y, tile } = data;
+        if (getTile(x, y) === TILE.AIR && (p.inv[tile] || 0) > 0) {
+          setTile(x, y, tile);
+          p.inv[tile] -= 1;
+        }
+      }
       if (data.type === 'chat' && data.message) {
         broadcast({ type: 'chat', message: `${p.name}: ${data.message}` });
       }
@@ -211,10 +240,21 @@ wss.on('connection', (ws, req) => {
 
 // Tick loop
 setInterval(() => {
-  const snapshot = Array.from(players.values()).map(({ apiKey, ...rest }) => rest);
-  const payload = JSON.stringify({ type: 'tick', players: snapshot });
-  for (const ws of sockets.values()) {
-    if (ws.readyState === 1) ws.send(payload);
+  for (const [playerId, ws] of sockets.entries()) {
+    if (ws.readyState !== 1) continue;
+    const p = players.get(playerId);
+    if (!p) continue;
+    const nearbyPlayers = Array.from(players.values())
+      .filter(o => Math.abs(o.x - p.x) <= VIEW_RADIUS && Math.abs(o.y - p.y) <= VIEW_RADIUS)
+      .map(({ apiKey, ...rest }) => rest);
+
+    const payload = {
+      type: 'tick',
+      player: { id: p.id, x: p.x, y: p.y, hp: p.hp, inv: p.inv },
+      players: nearbyPlayers,
+      tiles: getViewport(p),
+    };
+    ws.send(JSON.stringify(payload));
   }
 }, 1000 / TICK_RATE);
 
