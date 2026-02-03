@@ -444,10 +444,29 @@ const server = app.listen(PORT, () => {
 });
 
 // WebSocket for realtime actions
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ noServer: true });
 // Public world-view WebSocket (no auth)
-const wssWorld = new WebSocketServer({ server, path: '/ws/world' });
+const wssWorld = new WebSocketServer({ noServer: true });
 const worldSockets = new Set();
+
+server.on('upgrade', (req, socket, head) => {
+  try {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    if (url.pathname === '/ws/world') {
+      wssWorld.handleUpgrade(req, socket, head, (ws) => {
+        wssWorld.emit('connection', ws, req);
+      });
+      return;
+    }
+    if (url.pathname === '/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+      return;
+    }
+  } catch (e) {}
+  socket.destroy();
+});
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
