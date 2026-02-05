@@ -545,7 +545,7 @@ function avoidVoid(entity) {
 
 function isBelowDirt(x, y) {
   const surface = surfaceMap[Math.max(0, Math.min(WORLD_W - 1, Math.floor(x)))] || Math.floor(WORLD_H * 0.25);
-  return y > surface + 2;
+  return y > surface;
 }
 
 function keepAboveGround(entity) {
