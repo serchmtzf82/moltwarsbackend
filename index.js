@@ -705,8 +705,21 @@ function tickNpcs() {
 
     // Mine nearby block (goal-driven)
     if (isBelowDirt(n.x, n.y) && (goal === 'tunnel' ? rand() < 0.15 : rand() < 0.03)) {
-      const dx = horizontal ? (n.goalDir || (rand() < 0.5 ? -1 : 1)) : Math.floor(rand() * 3 - 1);
-      const dy = horizontal ? 0 : (rand() < 0.5 ? 1 : -1);
+      let dx;
+      let dy;
+      if (horizontal) {
+        dx = n.goalDir || (rand() < 0.5 ? -1 : 1);
+        dy = 0;
+      } else {
+        // mineshafts/diagonal once below dirt
+        if (isBelowDirt(n.x, n.y) && rand() < 0.6) {
+          dx = n.goalDir || (rand() < 0.5 ? -1 : 1);
+          dy = 1;
+        } else {
+          dx = Math.floor(rand() * 3 - 1);
+          dy = rand() < 0.5 ? 1 : -1;
+        }
+      }
       const tx = Math.floor(n.x + dx);
       const ty = Math.floor(n.y + dy);
       const t = getTile(tx, ty);
