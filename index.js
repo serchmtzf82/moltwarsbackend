@@ -731,7 +731,7 @@ function tickNpcs() {
       const tx = Math.floor(n.x + dx);
       const ty = Math.floor(n.y);
       const t = getTile(tx, ty);
-      if (false && t !== TILE.AIR && t !== TILE.SKY && rand() < 0.08) {
+      if (t !== TILE.AIR && t !== TILE.SKY && rand() < 0.16) {
         setTile(tx, ty, TILE.AIR);
         const item = t === TILE.TREE ? ITEM.WOOD : t === TILE.ORE ? ITEM.ORE : t === TILE.STONE ? ITEM.STONE : ITEM.DIRT;
         n.inv[item] = (n.inv[item] || 0) + 1;
