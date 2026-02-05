@@ -722,6 +722,7 @@ function tickNpcs() {
       tryMove(n, n.vx * 1.0, 0);
     }
 
+    if (n.vx !== 0) n.look = n.vx > 0 ? 1 : 0;
     applyGravity(n);
 
     // if blocked horizontally, mine forward to keep moving
