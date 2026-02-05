@@ -406,11 +406,12 @@ function findSurfaceY(x) {
 function spawnPlayer(name) {
   const spawnX = Math.floor(rand() * WORLD_W);
   const surfaceY = findSurfaceY(spawnX);
+  const spawnY = Math.min(WORLD_H - 2, surfaceY + 2);
   return {
     id: randomUUID(),
     name,
     x: spawnX,
-    y: surfaceY,
+    y: spawnY,
     hp: 100,
     apiKey: randomUUID().replace(/-/g, ''),
     inv: {},
@@ -426,7 +427,7 @@ function spawnPlayer(name) {
       playtimeMs: 0,
       lastTick: Date.now(),
     },
-    spawn: { x: spawnX, y: surfaceY },
+    spawn: { x: spawnX, y: spawnY },
     skin: SKINS[Math.floor(rand() * SKINS.length)],
   };
 }
