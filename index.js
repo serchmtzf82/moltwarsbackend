@@ -743,7 +743,7 @@ function tickNpcs() {
       const tx = Math.floor(n.x + dx);
       const ty = Math.floor(n.y);
       const t = getTile(tx, ty);
-      if (t !== TILE.AIR && t !== TILE.SKY && rand() < 0.08) {
+      if (false && t !== TILE.AIR && t !== TILE.SKY && rand() < 0.08) {
         setTile(tx, ty, TILE.AIR);
         const item = t === TILE.TREE ? ITEM.WOOD : t === TILE.ORE ? ITEM.ORE : t === TILE.STONE ? ITEM.STONE : ITEM.DIRT;
         n.inv[item] = (n.inv[item] || 0) + 1;
@@ -778,7 +778,7 @@ function tickNpcs() {
     }
 
     // Build if goal is build (or sometimes)
-    if (goal === 'build' ? rand() < 0.04 : rand() < 0.01) {
+    if (false && (goal === 'build' ? rand() < 0.04 : rand() < 0.01)) {
       const buildTile = [TILE.DIRT, TILE.STONE, TILE.TREE][Math.floor(rand() * 3)];
       const map = {
         [TILE.DIRT]: ITEM.DIRT,
