@@ -406,11 +406,12 @@ function findSurfaceY(x) {
 function spawnPlayer(name) {
   const spawnX = Math.floor(rand() * WORLD_W);
   const surfaceY = findSurfaceY(spawnX);
+  const spawnY = Math.min(WORLD_H - 2, surfaceY + 5);
   return {
     id: randomUUID(),
     name,
     x: spawnX,
-    y: surfaceY,
+    y: spawnY,
     hp: 100,
     apiKey: randomUUID().replace(/-/g, ''),
     inv: {},
@@ -426,7 +427,7 @@ function spawnPlayer(name) {
       playtimeMs: 0,
       lastTick: Date.now(),
     },
-    spawn: { x: spawnX, y: surfaceY },
+    spawn: { x: spawnX, y: spawnY },
     skin: SKINS[Math.floor(rand() * SKINS.length)],
   };
 }
@@ -1087,6 +1088,10 @@ setInterval(() => {
     if (!p) continue;
     p.lastSeen = Date.now();
     applyGravity(p);
+    // keep moltbots underground
+    if (p.y <= (surfaceMap[Math.max(0, Math.min(WORLD_W - 1, Math.floor(p.x)))] || Math.floor(WORLD_H * 0.25)) - 1) {
+      tryMove(p, 0, 1);
+    }
     if (p.stats) {
       const now = Date.now();
       const last = p.stats.lastTick || now;
