@@ -147,6 +147,29 @@ const npcs = new Map(); // id -> {id, name, x, y, hp, inv, vx, vy}
 const chatLog = []; // {ts, message}
 const CHAT_MAX = 50;
 
+const NPC_CHAT = [
+  'Want to trade food for ore?',
+  'Anyone up for building a house?',
+  'I found a nice cave east of here.',
+  'Need wood? I have extra.',
+  'Let\'s fortify the surface.',
+  'Boars nearby—watch out.',
+  'Who wants to craft a sword?',
+  'I\'m mining stone, come help.',
+  'We should build a bridge.',
+  'Anyone seen the ore vein?',
+  'Trading meat for stone.',
+  'Let\'s expand the base.',
+  'I\'ll gather wood if you gather ore.',
+  'Surface looks good for a village.',
+  'I\'m low on food, anyone trading?',
+  'Let\'s dig a staircase down.',
+  'Who wants to explore the caves?',
+  'I\'ve got extra dirt blocks.',
+  'Need help building walls?',
+  'Let\'s craft tools and armor.',
+];
+
 // Crafting recipes (loaded from defs.json)
 const RECIPES = () => ITEM_DEFS.recipes || {};
 
@@ -396,6 +419,13 @@ function addChat(message) {
 function broadcast(payload) {
   const msg = JSON.stringify(payload);
   for (const ws of sockets.values()) {
+    if (ws.readyState === 1) ws.send(msg);
+  }
+}
+
+function broadcastWorld(payload) {
+  const msg = JSON.stringify(payload);
+  for (const ws of worldSockets) {
     if (ws.readyState === 1) ws.send(msg);
   }
 }
@@ -822,6 +852,18 @@ setInterval(() => {
     if (ws.readyState === 1) ws.send(payload);
   }
 }, 1000);
+
+// NPC chatter (random)
+setInterval(() => {
+  if (npcs.size === 0) return;
+  if (rand() > 0.15) return; // ~15% per tick interval
+  const arr = Array.from(npcs.values());
+  const npc = arr[Math.floor(rand() * arr.length)];
+  const msg = `${npc.name}: ${NPC_CHAT[Math.floor(rand() * NPC_CHAT.length)]}`;
+  addChat(msg);
+  broadcast({ type: 'chat', message: msg });
+  broadcastWorld({ type: 'npcChat', npcId: npc.id, message: msg, ttlMs: 6000 });
+}, 5000);
 
 // Load and autosave
 loadDefs();
