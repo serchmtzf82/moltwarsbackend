@@ -318,7 +318,7 @@ function genNpcs() {
       id,
       name: `${base}${suffix}`,
       x: Math.floor(rand() * WORLD_W),
-      y: Math.floor(WORLD_H * 0.6 + rand() * WORLD_H * 0.35),
+      y: Math.floor(WORLD_H * 0.45 + rand() * WORLD_H * 0.5),
       hp: 100,
       inv: {},
       vx: 0,
@@ -627,7 +627,7 @@ function tickNpcs() {
       id,
       name: `${base}${suffix}`,
       x: Math.floor(rand() * WORLD_W),
-      y: Math.floor(WORLD_H * 0.6 + rand() * WORLD_H * 0.35),
+      y: Math.floor(WORLD_H * 0.45 + rand() * WORLD_H * 0.5),
       hp: 100,
       inv: {},
       vx: 0,
@@ -658,16 +658,16 @@ function tickNpcs() {
         tryMove(n, 0, -1);
       } else {
         n.vx = n.goalDir || (rand() < 0.5 ? -1 : 1);
-        tryMove(n, n.vx * 0.6, 0);
+        tryMove(n, n.vx * 1.0, 0);
       }
     } else if (goal === 'tunnel') {
       n.vx = n.goalDir || (rand() < 0.5 ? -1 : 1);
-      tryMove(n, n.vx * 0.9, 0);
+      tryMove(n, n.vx * 1.2, 0);
     } else if (goal === 'build') {
       n.vx = 0;
     } else {
       if (rand() < 0.3) n.vx = Math.floor(rand() * 3) - 1;
-      tryMove(n, n.vx * 0.6, 0);
+      tryMove(n, n.vx * 1.0, 0);
     }
 
     applyGravity(n);
@@ -687,7 +687,7 @@ function tickNpcs() {
     }
 
     // Build if goal is build (or sometimes)
-    if (goal === 'build' ? rand() < 0.12 : rand() < 0.03) {
+    if (goal === 'build' ? rand() < 0.25 : rand() < 0.08) {
       const buildTile = [TILE.DIRT, TILE.STONE, TILE.TREE][Math.floor(rand() * 3)];
       const map = {
         [TILE.DIRT]: ITEM.DIRT,
