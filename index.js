@@ -548,10 +548,13 @@ function tickNpcs() {
     tryMove(n, n.vx * 0.8, 0);
     applyGravity(n);
 
-    // Mine nearby block (very active)
+    // Mine nearby block (mix of shafts + horizontal tunnels)
     if (rand() < 0.08) {
-      const tx = Math.floor(n.x + (rand() * 3 - 1));
-      const ty = Math.floor(n.y + (rand() * 3 - 1));
+      const horizontal = rand() < 0.6; // prefer side-to-side
+      const dx = horizontal ? (rand() < 0.5 ? -1 : 1) : Math.floor(rand() * 3 - 1);
+      const dy = horizontal ? 0 : (rand() < 0.5 ? 1 : -1);
+      const tx = Math.floor(n.x + dx);
+      const ty = Math.floor(n.y + dy);
       const t = getTile(tx, ty);
       if (t !== TILE.AIR && t !== TILE.SKY) {
         setTile(tx, ty, TILE.AIR);
