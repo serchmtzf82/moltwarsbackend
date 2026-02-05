@@ -583,6 +583,11 @@ function tickAnimals() {
   }
 
   for (const a of animals.values()) {
+    const x = Math.max(0, Math.min(WORLD_W - 1, Math.floor(a.x)));
+    const surface = surfaceMap[x] || Math.floor(WORLD_H * 0.25);
+    // keep boars on surface (walk over holes)
+    a.y = Math.min(a.y, surface - 1);
+
     if (avoidVoid(a) || keepAboveGround(a)) {
       a.vx = Math.floor(rand() * 3) - 1;
     }
@@ -591,8 +596,7 @@ function tickAnimals() {
       a.vx = Math.floor(rand() * 3) - 1;
       a.vy = 0;
     }
-    tryMove(a, a.vx * 0.5, a.vy * 0.0);
-    applyGravity(a);
+    tryMove(a, a.vx * 0.5, 0);
   }
 }
 
