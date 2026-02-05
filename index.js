@@ -701,7 +701,7 @@ function tickNpcs() {
     } else if (goal === 'diag') {
       const dir = n.goalDir || (rand() < 0.5 ? -1 : 1);
       n.vx = dir;
-      tryMove(n, dir * 0.4, 0.4);
+      tryMove(n, dir * 0.55, 0.55);
     } else if (goal === 'surface') {
       if (keepAboveGround(n)) {
         n.vx = 0;
@@ -719,14 +719,14 @@ function tickNpcs() {
         }
       } else {
         n.vx = n.goalDir || (rand() < 0.5 ? -1 : 1);
-        tryMove(n, n.vx * 0.4, 0);
+        tryMove(n, n.vx * 0.55, 0);
       }
     } else if (goal === 'tunnel') {
       n.vx = n.goalDir || (rand() < 0.5 ? -1 : 1);
-      tryMove(n, n.vx * 0.5, 0);
+      tryMove(n, n.vx * 0.7, 0);
     } else if (goal === 'build') {
       if (rand() < 0.5) n.vx = n.goalDir || (rand() < 0.5 ? -1 : 1);
-      tryMove(n, n.vx * 0.4, 0);
+      tryMove(n, n.vx * 0.55, 0);
     } else {
       if (rand() < 0.3) n.vx = Math.floor(rand() * 3) - 1;
       tryMove(n, n.vx * 1.0, 0);
