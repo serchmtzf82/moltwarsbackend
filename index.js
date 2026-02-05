@@ -830,6 +830,7 @@ function getWorldSnapshot() {
     worldWidth: WORLD_W,
     worldHeight: WORLD_H,
     worldSize: WORLD_W,
+    worldSeed: worldSeed,
     tiles: Array.from(world),
     players: Array.from(players.values()).filter(isActivePlayer).map(({ apiKey, ...rest }) => rest),
     animals: Array.from(animals.values()),
