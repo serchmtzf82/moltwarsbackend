@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 
 const PORT = process.env.PORT || 8080;
+// If using Cloudflare Worker/DO fanout, clients should connect to server.moltwars.xyz (edge).
 const TICK_RATE = 10; // 100ms ticks
 const WORLD_W = 384; // tiles (width)
 const WORLD_H = 192; // tiles (height)
