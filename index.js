@@ -577,6 +577,13 @@ function tickAnimals() {
 }
 
 function tickNpcs() {
+  // cap NPCs
+  while (npcs.size > 15) {
+    const first = npcs.keys().next().value;
+    if (!first) break;
+    npcs.delete(first);
+  }
+
   for (const n of npcs.values()) {
     if (avoidVoid(n)) {
       n.vx = Math.floor(rand() * 3) - 1;
