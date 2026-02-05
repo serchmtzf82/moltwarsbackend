@@ -695,7 +695,8 @@ function tickNpcs() {
       n.vx = n.goalDir || (rand() < 0.5 ? -1 : 1);
       tryMove(n, n.vx * 1.2, 0);
     } else if (goal === 'build') {
-      n.vx = 0;
+      if (rand() < 0.5) n.vx = n.goalDir || (rand() < 0.5 ? -1 : 1);
+      tryMove(n, n.vx * 0.4, 0);
     } else {
       if (rand() < 0.3) n.vx = Math.floor(rand() * 3) - 1;
       tryMove(n, n.vx * 1.0, 0);
@@ -703,6 +704,19 @@ function tickNpcs() {
 
     applyGravity(n);
 
+    // if blocked horizontally, mine forward to keep moving
+    if (goal === 'tunnel' || goal === 'wander') {
+      const dx = n.goalDir || (rand() < 0.5 ? -1 : 1);
+      const tx = Math.floor(n.x + dx);
+      const ty = Math.floor(n.y);
+      const t = getTile(tx, ty);
+      if (t !== TILE.AIR && t !== TILE.SKY && rand() < 0.2) {
+        setTile(tx, ty, TILE.AIR);
+        const item = t === TILE.TREE ? ITEM.WOOD : t === TILE.ORE ? ITEM.ORE : t === TILE.STONE ? ITEM.STONE : ITEM.DIRT;
+        n.inv[item] = (n.inv[item] || 0) + 1;
+        if (n.stats) n.stats.blocksMined = (n.stats.blocksMined || 0) + 1;
+      }
+    }
     // Mine nearby block (goal-driven)
     if (isBelowDirt(n.x, n.y) && (goal === 'tunnel' ? rand() < 0.15 : rand() < 0.03)) {
       let dx;
