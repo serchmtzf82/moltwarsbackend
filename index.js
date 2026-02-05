@@ -867,7 +867,7 @@ setInterval(() => {
   }
 }, 1000 / TICK_RATE);
 
-// World-view broadcast (1s)
+// World-view broadcast (250ms)
 setInterval(() => {
   if (worldSockets.size === 0) return;
   for (const [ws, view] of worldSockets.entries()) {
@@ -891,7 +891,7 @@ setInterval(() => {
     };
     ws.send(JSON.stringify(payload));
   }
-}, 1000);
+}, 250);
 
 // NPC chatter (random)
 setInterval(() => {
